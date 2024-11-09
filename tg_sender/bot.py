@@ -2,6 +2,8 @@ import asyncio
 import logging
 import os
 import sys
+from enum import StrEnum
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -18,12 +20,22 @@ from aiogram.types import (
 from dotenv import load_dotenv
 from telethon import TelegramClient
 
+from tg_sender.file_storage import LocalFileStorage
+
 load_dotenv()
 api_id = int(os.environ["API_ID"])
 api_hash = os.environ["API_HASH"]
 TOKEN = os.environ["TOKEN"]
 
 form_router = Router()
+
+
+class ButtonTexts(StrEnum):
+    NEW_MAILING = "Новая рассылка"
+    YES = "Да"
+    NO = "Нет"
+    SEND = "Отправить"
+    CANCEL = "Отмена"
 
 
 class Form(StatesGroup):
@@ -40,7 +52,7 @@ async def command_start(message: Message, state: FSMContext) -> None:
         "Привет, я бот для рассылки сообщений.",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="Новая рассылка")],
+                [KeyboardButton(text=ButtonTexts.NEW_MAILING.value)],
             ],
             resize_keyboard=True,
         ),
@@ -64,11 +76,12 @@ async def ask_for_message(message: Message) -> None:
 @form_router.message(Form.start)
 async def handle_start(message: Message, state: FSMContext) -> None:
     if message.text is None or message.text.casefold() not in [
-        "новая рассылка",
+        ButtonTexts.NEW_MAILING.value.lower(),
     ]:
         await message.answer(
-            "Не получилось распознать команду, попробуй еще раз.",
+            "Не получилось распознать команду, возврат в начало.",
         )
+        await command_start(message, state)
         return
     prev_list: list[str] | None = await state.get_value(key="list_of_users")
     if not prev_list:
@@ -83,7 +96,10 @@ async def handle_start(message: Message, state: FSMContext) -> None:
         f"Список с прошлой рассылки: {'\n'.join(prev_list)}.\nХотите использовать тот же список пользователей?",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="Да"), KeyboardButton(text="Нет")],
+                [
+                    KeyboardButton(text=ButtonTexts.YES.value),
+                    KeyboardButton(text=ButtonTexts.NO.value),
+                ],
             ],
             resize_keyboard=True,
         ),
@@ -93,12 +109,13 @@ async def handle_start(message: Message, state: FSMContext) -> None:
 
 @form_router.message(Form.should_use_same_list)
 async def handle_should_use_same_list_yes(message: Message, state: FSMContext) -> None:
-    if message.text is None or message.text.casefold() not in ["да", "нет"]:
+    allowed_cmds = [ButtonTexts.YES.value.lower(), ButtonTexts.NO.value.lower()]
+    if message.text is None or message.text.casefold() not in allowed_cmds:
         await message.answer(
-            "Не получилось распознать ответ, попробуй еще раз написать 'да' или 'нет'.",
+            f"Не получилось распознать ответ, допустимые ответы: {', '.join(allowed_cmds)}.",
         )
         return
-    elif message.text.casefold() == "да":
+    elif message.text.casefold() == ButtonTexts.YES.value.lower():
         await message.answer(
             "Окей, использую тот же лист", reply_markup=ReplyKeyboardRemove()
         )
@@ -143,7 +160,10 @@ async def handle_enter_message(message: Message, state: FSMContext) -> None:
         "Подтвердите отправку сообщения",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="Отправить"), KeyboardButton(text="Отмена")],
+                [
+                    KeyboardButton(text=ButtonTexts.SEND.value),
+                    KeyboardButton(text=ButtonTexts.CANCEL.value),
+                ],
             ],
             resize_keyboard=True,
         ),
@@ -153,16 +173,17 @@ async def handle_enter_message(message: Message, state: FSMContext) -> None:
 
 @form_router.message(Form.ask_confirmation)
 async def handle_ask_confirmation(message: Message, state: FSMContext) -> None:
-    if message.text is None or message.text.casefold() not in ["отправить", "отменить"]:
+    allowed_cmds = [ButtonTexts.SEND.value.lower(), ButtonTexts.CANCEL.value.lower()]
+    if message.text is None or message.text.casefold() not in allowed_cmds:
         await message.answer(
-            "Не получилось распознать ответ, попробуй еще раз написать 'отправить' или 'отменить'."
+            f"Не получилось распознать ответ, допустимые ответы: {', '.join(allowed_cmds)}.",
         )
         return
     if not (source_user := message.from_user):
         await message.answer("Не могу определить ваш user ID, возврат в начало")
         await command_start(message, state)
         return
-    elif message.text.casefold() == "отправить":
+    elif message.text.casefold() == ButtonTexts.SEND.value.lower():
         await message.answer("Отправляю сообщение", reply_markup=ReplyKeyboardRemove())
         data = await state.get_data()
         list_of_users = data["list_of_users"]
@@ -182,7 +203,7 @@ async def handle_ask_confirmation(message: Message, state: FSMContext) -> None:
 
 
 @form_router.message(Command("cancel"))
-@form_router.message(F.text.casefold() == "отмена")
+@form_router.message(F.text.casefold() == ButtonTexts.CANCEL.value.lower())
 async def cancel_handler(message: Message, state: FSMContext) -> None:
     await message.answer("Возврат в начало", reply_markup=ReplyKeyboardRemove())
     await command_start(message, state)
@@ -199,7 +220,7 @@ async def unknown_message_handler(message: Message, state: FSMContext) -> None:
 
 async def main():
     bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = Dispatcher()
+    dp = Dispatcher(storage=LocalFileStorage(Path("storage.pkl")))
     dp.include_router(form_router)
     dp.include_router(unk_router)
     # Start event dispatching
