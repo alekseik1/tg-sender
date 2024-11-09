@@ -63,6 +63,13 @@ async def ask_for_message(message: Message) -> None:
 
 @form_router.message(Form.start)
 async def handle_start(message: Message, state: FSMContext) -> None:
+    if message.text is None or message.text.casefold() not in [
+        "новая рассылка",
+    ]:
+        await message.answer(
+            "Не получилось распознать команду, попробуй еще раз.",
+        )
+        return
     prev_list: list[str] | None = await state.get_value(key="list_of_users")
     if not prev_list:
         await message.answer(
@@ -153,7 +160,7 @@ async def handle_ask_confirmation(message: Message, state: FSMContext) -> None:
         return
     if not (source_user := message.from_user):
         await message.answer("Не могу определить ваш user ID, возврат в начало")
-        await state.set_state(Form.start)
+        await command_start(message, state)
         return
     elif message.text.casefold() == "отправить":
         await message.answer("Отправляю сообщение", reply_markup=ReplyKeyboardRemove())
@@ -177,8 +184,8 @@ async def handle_ask_confirmation(message: Message, state: FSMContext) -> None:
 @form_router.message(Command("cancel"))
 @form_router.message(F.text.casefold() == "отмена")
 async def cancel_handler(message: Message, state: FSMContext) -> None:
-    await state.set_state(Form.start)
     await message.answer("Возврат в начало", reply_markup=ReplyKeyboardRemove())
+    await command_start(message, state)
 
 
 unk_router = Router()
@@ -187,7 +194,6 @@ unk_router = Router()
 @unk_router.message()
 async def unknown_message_handler(message: Message, state: FSMContext) -> None:
     await message.answer("Возврат в начало")
-    await state.set_state(Form.start)
     await command_start(message, state)
 
 
