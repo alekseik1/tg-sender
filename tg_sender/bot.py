@@ -227,6 +227,16 @@ async def main():
     await dp.start_polling(bot)
 
 
+def setup_logging():
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_formatter = logging.Formatter(
+        "[%(asctime)s] %(levelname)-5.5s: %(message)s", "%Y-%m-%d %H:%M:%S"
+    )
+    console_handler.setFormatter(console_formatter)
+    logging.getLogger("").addHandler(console_handler)
+    logging.getLogger("").setLevel(logging.INFO)
+
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    setup_logging()
     asyncio.run(main())
