@@ -28,6 +28,7 @@ api_hash = os.environ["API_HASH"]
 TOKEN = os.environ["TOKEN"]
 
 form_router = Router()
+logger = logging.getLogger(__name__)
 
 
 class ButtonTexts(StrEnum):
@@ -191,7 +192,13 @@ async def handle_ask_confirmation(message: Message, state: FSMContext) -> None:
         async with TelegramClient(str(source_user.id), api_id, api_hash) as client:
             for dest_user in list_of_users:
                 await message.answer(f"Отправляю сообщение пользователю {dest_user}")
-                await client.send_message(dest_user, text)
+                try:
+                    await client.send_message(dest_user, text)
+                except Exception:
+                    await message.answer(
+                        f"**Не удалось** отправить сообщение пользователю {dest_user}"
+                    )
+                    logger.error(f"Failed to send message to {dest_user}", exc_info=True)
                 await asyncio.sleep(0.05)
         await message.answer("Рассылка завершена", reply_markup=ReplyKeyboardRemove())
         await state.set_state(Form.start)
